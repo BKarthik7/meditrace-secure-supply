@@ -100,7 +100,7 @@ const DistributorDashboard = () => {
     setIsProcessingTx(true);
 
     try {
-      // Send blockchain transaction
+      // Send blockchain transaction using browser-compatible encoding
       const txData = stringToHex(JSON.stringify({
         action: 'SELL_PRODUCT',
         productId: sellForm.productId,

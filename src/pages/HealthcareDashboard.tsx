@@ -90,7 +90,7 @@ const HealthcareDashboard = () => {
     setIsProcessingTx(true);
 
     try {
-      // Send verification transaction first
+      // Send verification transaction first using browser-compatible encoding
       const txData = stringToHex(JSON.stringify({
         action: 'VIEW_HISTORY',
         productQuery: searchQuery,
