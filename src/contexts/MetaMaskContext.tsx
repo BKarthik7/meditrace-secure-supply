@@ -27,6 +27,13 @@ declare global {
   }
 }
 
+// Browser-compatible function to convert string to hex
+const stringToHex = (str: string): string => {
+  return '0x' + Array.from(new TextEncoder().encode(str))
+    .map(byte => byte.toString(16).padStart(2, '0'))
+    .join('');
+};
+
 export const MetaMaskProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [account, setAccount] = useState<string | null>(null);
   const [balance, setBalance] = useState<string>('0');

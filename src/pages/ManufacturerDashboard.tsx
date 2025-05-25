@@ -13,6 +13,13 @@ import { useNavigate } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
 import { TRANSACTION_COSTS, formatEthAmount, getTransactionDescription } from "@/utils/transactionCosts";
 
+// Browser-compatible function to convert string to hex
+const stringToHex = (str: string): string => {
+  return '0x' + Array.from(new TextEncoder().encode(str))
+    .map(byte => byte.toString(16).padStart(2, '0'))
+    .join('');
+};
+
 const ManufacturerDashboard = () => {
   const { user, logout } = useAuth();
   const { addProduct, assignProduct, products } = useBlockchain();
@@ -79,15 +86,17 @@ const ManufacturerDashboard = () => {
     setIsProcessingTx(true);
 
     try {
-      // Send blockchain transaction
+      // Send blockchain transaction using browser-compatible encoding
+      const txData = stringToHex(JSON.stringify({
+        action: 'ADD_PRODUCT',
+        product: productForm,
+        timestamp: new Date().toISOString()
+      }));
+
       const txHash = await sendTransaction(
         account!, // to self for record keeping
         TRANSACTION_COSTS.ADD_PRODUCT,
-        `0x${Buffer.from(JSON.stringify({
-          action: 'ADD_PRODUCT',
-          product: productForm,
-          timestamp: new Date().toISOString()
-        })).toString('hex')}`
+        txData
       );
 
       const productId = addProduct({
@@ -151,16 +160,18 @@ const ManufacturerDashboard = () => {
     setIsProcessingTx(true);
 
     try {
+      const txData = stringToHex(JSON.stringify({
+        action: 'ASSIGN_PRODUCT',
+        productId: assignForm.productId,
+        distributor: assignForm.distributorEmail,
+        dispatchDate: assignForm.dispatchDate,
+        timestamp: new Date().toISOString()
+      }));
+
       const txHash = await sendTransaction(
         account!,
         TRANSACTION_COSTS.ASSIGN_PRODUCT,
-        `0x${Buffer.from(JSON.stringify({
-          action: 'ASSIGN_PRODUCT',
-          productId: assignForm.productId,
-          distributor: assignForm.distributorEmail,
-          dispatchDate: assignForm.dispatchDate,
-          timestamp: new Date().toISOString()
-        })).toString('hex')}`
+        txData
       );
 
       assignProduct(assignForm.productId, assignForm.distributorEmail, assignForm.dispatchDate, txHash);
