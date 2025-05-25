@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "./contexts/AuthContext";
 import { BlockchainProvider } from "./contexts/BlockchainContext";
+import { MetaMaskProvider } from "./contexts/MetaMaskContext";
 import Index from "./pages/Index";
 import Login from "./pages/Login";
 import ManufacturerDashboard from "./pages/ManufacturerDashboard";
@@ -20,20 +21,22 @@ const App = () => (
     <TooltipProvider>
       <Toaster />
       <Sonner />
-      <AuthProvider>
-        <BlockchainProvider>
-          <BrowserRouter>
-            <Routes>
-              <Route path="/" element={<Index />} />
-              <Route path="/login" element={<Login />} />
-              <Route path="/manufacturer" element={<ManufacturerDashboard />} />
-              <Route path="/distributor" element={<DistributorDashboard />} />
-              <Route path="/healthcare" element={<HealthcareDashboard />} />
-              <Route path="*" element={<NotFound />} />
-            </Routes>
-          </BrowserRouter>
-        </BlockchainProvider>
-      </AuthProvider>
+      <MetaMaskProvider>
+        <AuthProvider>
+          <BlockchainProvider>
+            <BrowserRouter>
+              <Routes>
+                <Route path="/" element={<Index />} />
+                <Route path="/login" element={<Login />} />
+                <Route path="/manufacturer" element={<ManufacturerDashboard />} />
+                <Route path="/distributor" element={<DistributorDashboard />} />
+                <Route path="/healthcare" element={<HealthcareDashboard />} />
+                <Route path="*" element={<NotFound />} />
+              </Routes>
+            </BrowserRouter>
+          </BlockchainProvider>
+        </AuthProvider>
+      </MetaMaskProvider>
     </TooltipProvider>
   </QueryClientProvider>
 );

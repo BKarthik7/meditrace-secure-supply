@@ -5,15 +5,18 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Shield, Package, Plus, Truck, LogOut } from "lucide-react";
+import { Shield, Package, Plus, Truck, LogOut, Wallet, AlertCircle } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useBlockchain } from "@/contexts/BlockchainContext";
+import { useMetaMask } from "@/contexts/MetaMaskContext";
 import { useNavigate } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
+import { TRANSACTION_COSTS, formatEthAmount, getTransactionDescription } from "@/utils/transactionCosts";
 
 const ManufacturerDashboard = () => {
   const { user, logout } = useAuth();
   const { addProduct, assignProduct, products } = useBlockchain();
+  const { account, isConnected, balance, connectWallet, sendTransaction, isMetaMaskInstalled } = useMetaMask();
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -30,6 +33,8 @@ const ManufacturerDashboard = () => {
     dispatchDate: "",
   });
 
+  const [isProcessingTx, setIsProcessingTx] = useState(false);
+
   useEffect(() => {
     if (!user || user.role !== 'manufacturer') {
       navigate('/login');
@@ -41,7 +46,7 @@ const ManufacturerDashboard = () => {
     navigate('/');
   };
 
-  const handleAddProduct = (e: React.FormEvent) => {
+  const handleAddProduct = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (!productForm.name || !productForm.batchNumber || !productForm.expirationDate) {
@@ -53,25 +58,67 @@ const ManufacturerDashboard = () => {
       return;
     }
 
-    const productId = addProduct({
-      ...productForm,
-      manufacturer: user?.email || "",
-    });
+    if (!isConnected) {
+      toast({
+        title: "Wallet Required",
+        description: "Please connect your MetaMask wallet to add products to the blockchain",
+        variant: "destructive",
+      });
+      return;
+    }
 
-    toast({
-      title: "Product Added",
-      description: `Product ${productId} has been added to the blockchain`,
-    });
+    if (parseFloat(balance) < parseFloat(TRANSACTION_COSTS.ADD_PRODUCT)) {
+      toast({
+        title: "Insufficient Balance",
+        description: `You need at least ${formatEthAmount(TRANSACTION_COSTS.ADD_PRODUCT)} to add a product`,
+        variant: "destructive",
+      });
+      return;
+    }
 
-    setProductForm({
-      name: "",
-      description: "",
-      batchNumber: "",
-      expirationDate: "",
-    });
+    setIsProcessingTx(true);
+
+    try {
+      // Send blockchain transaction
+      const txHash = await sendTransaction(
+        account!, // to self for record keeping
+        TRANSACTION_COSTS.ADD_PRODUCT,
+        `0x${Buffer.from(JSON.stringify({
+          action: 'ADD_PRODUCT',
+          product: productForm,
+          timestamp: new Date().toISOString()
+        })).toString('hex')}`
+      );
+
+      const productId = addProduct({
+        ...productForm,
+        manufacturer: user?.email || "",
+      }, txHash);
+
+      toast({
+        title: "Product Added to Blockchain",
+        description: `Product ${productId} has been recorded on the blockchain. Transaction: ${txHash.substring(0, 10)}...`,
+      });
+
+      setProductForm({
+        name: "",
+        description: "",
+        batchNumber: "",
+        expirationDate: "",
+      });
+    } catch (error) {
+      console.error('Transaction failed:', error);
+      toast({
+        title: "Transaction Failed",
+        description: "Failed to add product to blockchain. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsProcessingTx(false);
+    }
   };
 
-  const handleAssignProduct = (e: React.FormEvent) => {
+  const handleAssignProduct = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (!assignForm.productId || !assignForm.distributorEmail || !assignForm.dispatchDate) {
@@ -83,18 +130,61 @@ const ManufacturerDashboard = () => {
       return;
     }
 
-    assignProduct(assignForm.productId, assignForm.distributorEmail, assignForm.dispatchDate);
+    if (!isConnected) {
+      toast({
+        title: "Wallet Required",
+        description: "Please connect your MetaMask wallet to assign products",
+        variant: "destructive",
+      });
+      return;
+    }
 
-    toast({
-      title: "Product Assigned",
-      description: `Product assigned to ${assignForm.distributorEmail}`,
-    });
+    if (parseFloat(balance) < parseFloat(TRANSACTION_COSTS.ASSIGN_PRODUCT)) {
+      toast({
+        title: "Insufficient Balance",
+        description: `You need at least ${formatEthAmount(TRANSACTION_COSTS.ASSIGN_PRODUCT)} to assign a product`,
+        variant: "destructive",
+      });
+      return;
+    }
 
-    setAssignForm({
-      productId: "",
-      distributorEmail: "",
-      dispatchDate: "",
-    });
+    setIsProcessingTx(true);
+
+    try {
+      const txHash = await sendTransaction(
+        account!,
+        TRANSACTION_COSTS.ASSIGN_PRODUCT,
+        `0x${Buffer.from(JSON.stringify({
+          action: 'ASSIGN_PRODUCT',
+          productId: assignForm.productId,
+          distributor: assignForm.distributorEmail,
+          dispatchDate: assignForm.dispatchDate,
+          timestamp: new Date().toISOString()
+        })).toString('hex')}`
+      );
+
+      assignProduct(assignForm.productId, assignForm.distributorEmail, assignForm.dispatchDate, txHash);
+
+      toast({
+        title: "Product Assigned",
+        description: `Product assigned to ${assignForm.distributorEmail}. Blockchain TX: ${txHash.substring(0, 10)}...`,
+      });
+
+      setAssignForm({
+        productId: "",
+        distributorEmail: "",
+        dispatchDate: "",
+      });
+    } catch (error) {
+      console.error('Assignment transaction failed:', error);
+      toast({
+        title: "Transaction Failed",
+        description: "Failed to assign product on blockchain. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsProcessingTx(false);
+    }
   };
 
   const myProducts = products.filter(product => product.manufacturer === user?.email);
@@ -110,6 +200,26 @@ const ManufacturerDashboard = () => {
               <span className="text-xl font-bold">MedChain - Manufacturer</span>
             </div>
             <div className="flex items-center space-x-4">
+              {/* MetaMask Status */}
+              {!isMetaMaskInstalled ? (
+                <div className="flex items-center space-x-2 text-red-600">
+                  <AlertCircle className="h-4 w-4" />
+                  <span className="text-sm">Install MetaMask</span>
+                </div>
+              ) : !isConnected ? (
+                <Button onClick={connectWallet} variant="outline" size="sm">
+                  <Wallet className="h-4 w-4 mr-2" />
+                  Connect Wallet
+                </Button>
+              ) : (
+                <div className="flex items-center space-x-2 text-green-600">
+                  <Wallet className="h-4 w-4" />
+                  <div className="text-sm">
+                    <div>{account?.substring(0, 6)}...{account?.substring(38)}</div>
+                    <div>{balance} ETH</div>
+                  </div>
+                </div>
+              )}
               <span className="text-sm text-gray-600">Welcome, {user?.name}</span>
               <Button onClick={handleLogout} variant="outline" size="sm">
                 <LogOut className="h-4 w-4 mr-2" />
@@ -131,6 +241,9 @@ const ManufacturerDashboard = () => {
               </CardTitle>
               <CardDescription>
                 Register a new medical supply on the blockchain
+                <div className="mt-2 text-xs bg-blue-50 p-2 rounded">
+                  Cost: {formatEthAmount(TRANSACTION_COSTS.ADD_PRODUCT)}
+                </div>
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -179,8 +292,12 @@ const ManufacturerDashboard = () => {
                   />
                 </div>
                 
-                <Button type="submit" className="w-full bg-blue-600 hover:bg-blue-700">
-                  Add Product
+                <Button 
+                  type="submit" 
+                  className="w-full bg-blue-600 hover:bg-blue-700"
+                  disabled={!isConnected || isProcessingTx}
+                >
+                  {isProcessingTx ? "Processing Transaction..." : "Add Product to Blockchain"}
                 </Button>
               </form>
             </CardContent>
@@ -195,6 +312,9 @@ const ManufacturerDashboard = () => {
               </CardTitle>
               <CardDescription>
                 Assign products to distributors for sale
+                <div className="mt-2 text-xs bg-yellow-50 p-2 rounded">
+                  Cost: {formatEthAmount(TRANSACTION_COSTS.ASSIGN_PRODUCT)}
+                </div>
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -233,8 +353,12 @@ const ManufacturerDashboard = () => {
                   />
                 </div>
                 
-                <Button type="submit" className="w-full bg-green-600 hover:bg-green-700">
-                  Assign Product
+                <Button 
+                  type="submit" 
+                  className="w-full bg-green-600 hover:bg-green-700"
+                  disabled={!isConnected || isProcessingTx}
+                >
+                  {isProcessingTx ? "Processing Transaction..." : "Assign Product"}
                 </Button>
               </form>
             </CardContent>
@@ -271,6 +395,11 @@ const ManufacturerDashboard = () => {
                       <p className="text-xs text-gray-600">ID: {product.id}</p>
                       <p className="text-xs text-gray-600">Batch: {product.batchNumber}</p>
                       <p className="text-xs text-gray-600">Expires: {product.expirationDate}</p>
+                      {product.blockchainTxHash && (
+                        <p className="text-xs text-green-600">
+                          Blockchain TX: {product.blockchainTxHash.substring(0, 10)}...
+                        </p>
+                      )}
                     </div>
                   ))
                 )}

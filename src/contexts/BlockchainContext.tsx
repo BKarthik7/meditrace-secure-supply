@@ -10,6 +10,8 @@ interface Transaction {
   to?: string;
   details: any;
   hash: string;
+  txHash?: string; // MetaMask transaction hash
+  gasCost?: string; // Actual gas cost paid
 }
 
 interface Product {
@@ -22,16 +24,18 @@ interface Product {
   currentHolder: string;
   status: 'manufactured' | 'assigned' | 'sold' | 'verified';
   qrCode?: string;
+  blockchainTxHash?: string; // Associated blockchain transaction
 }
 
 interface BlockchainContextType {
   products: Product[];
   transactions: Transaction[];
-  addProduct: (product: Omit<Product, 'id' | 'status' | 'currentHolder'>) => string;
-  assignProduct: (productId: string, distributorEmail: string, dispatchDate: string) => void;
-  sellProduct: (productId: string, healthcareProvider: string) => string;
-  getProductHistory: (productId: string) => Transaction[];
+  addProduct: (product: Omit<Product, 'id' | 'status' | 'currentHolder' | 'blockchainTxHash'>, txHash?: string) => string;
+  assignProduct: (productId: string, distributorEmail: string, dispatchDate: string, txHash?: string) => void;
+  sellProduct: (productId: string, healthcareProvider: string, txHash?: string) => string;
+  getProductHistory: (productId: string, txHash?: string) => Transaction[];
   getProduct: (productId: string) => Product | undefined;
+  verifyProduct: (productId: string, txHash?: string) => boolean;
 }
 
 const BlockchainContext = createContext<BlockchainContextType | undefined>(undefined);
@@ -63,7 +67,7 @@ export const BlockchainProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     return newTransaction;
   };
 
-  const addProduct = (productData: Omit<Product, 'id' | 'status' | 'currentHolder'>) => {
+  const addProduct = (productData: Omit<Product, 'id' | 'status' | 'currentHolder' | 'blockchainTxHash'>, txHash?: string) => {
     const productId = `MED-${Date.now()}-${Math.random().toString(36).substr(2, 4).toUpperCase()}`;
     
     const newProduct: Product = {
@@ -71,6 +75,7 @@ export const BlockchainProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       id: productId,
       status: 'manufactured',
       currentHolder: productData.manufacturer,
+      blockchainTxHash: txHash,
     };
 
     setProducts(prev => [...prev, newProduct]);
@@ -80,13 +85,14 @@ export const BlockchainProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       type: 'created',
       from: productData.manufacturer,
       details: productData,
+      txHash,
     });
 
-    console.log('Product added to blockchain:', newProduct);
+    console.log('Product added to blockchain with transaction:', { product: newProduct, txHash });
     return productId;
   };
 
-  const assignProduct = (productId: string, distributorEmail: string, dispatchDate: string) => {
+  const assignProduct = (productId: string, distributorEmail: string, dispatchDate: string, txHash?: string) => {
     setProducts(prev => prev.map(product => 
       product.id === productId 
         ? { ...product, status: 'assigned', currentHolder: distributorEmail }
@@ -99,12 +105,13 @@ export const BlockchainProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       from: products.find(p => p.id === productId)?.currentHolder || '',
       to: distributorEmail,
       details: { dispatchDate },
+      txHash,
     });
 
-    console.log('Product assigned:', { productId, distributorEmail, dispatchDate });
+    console.log('Product assigned with blockchain transaction:', { productId, distributorEmail, dispatchDate, txHash });
   };
 
-  const sellProduct = (productId: string, healthcareProvider: string) => {
+  const sellProduct = (productId: string, healthcareProvider: string, txHash?: string) => {
     const qrCode = `QR-${productId}-${Date.now()}`;
     
     setProducts(prev => prev.map(product => 
@@ -119,18 +126,45 @@ export const BlockchainProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       from: products.find(p => p.id === productId)?.currentHolder || '',
       to: healthcareProvider,
       details: { qrCode },
+      txHash,
     });
 
-    console.log('Product sold, QR generated:', { productId, qrCode });
+    console.log('Product sold with blockchain transaction:', { productId, qrCode, txHash });
     return qrCode;
   };
 
-  const getProductHistory = (productId: string) => {
+  const getProductHistory = (productId: string, txHash?: string) => {
+    if (txHash) {
+      addTransaction({
+        productId,
+        type: 'verified',
+        from: 'system',
+        details: { verification: true },
+        txHash,
+      });
+    }
     return transactions.filter(tx => tx.productId === productId);
   };
 
   const getProduct = (productId: string) => {
     return products.find(product => product.id === productId);
+  };
+
+  const verifyProduct = (productId: string, txHash?: string) => {
+    const product = getProduct(productId);
+    if (!product) return false;
+
+    if (txHash) {
+      addTransaction({
+        productId,
+        type: 'verified',
+        from: 'verification_system',
+        details: { verified: true, timestamp: new Date().toISOString() },
+        txHash,
+      });
+    }
+
+    return true;
   };
 
   const value = {
@@ -141,6 +175,7 @@ export const BlockchainProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     sellProduct,
     getProductHistory,
     getProduct,
+    verifyProduct,
   };
 
   return <BlockchainContext.Provider value={value}>{children}</BlockchainContext.Provider>;
