@@ -5,21 +5,39 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Shield, QrCode, Search, LogOut, Package, Clock, User, Truck } from "lucide-react";
+import { Shield, QrCode, Search, LogOut, Package, Clock, User, Truck, Wallet, AlertCircle } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useBlockchain } from "@/contexts/BlockchainContext";
+import { useMetaMask } from "@/contexts/MetaMaskContext";
 import { useNavigate } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
+import { TRANSACTION_COSTS, formatEthAmount, getTransactionDescription } from "@/utils/transactionCosts";
+
+// Browser-compatible function to convert string to hex
+const stringToHex = (str: string): string => {
+  return '0x' + Array.from(new TextEncoder().encode(str))
+    .map(byte => byte.toString(16).padStart(2, '0'))
+    .join('');
+};
 
 const HealthcareDashboard = () => {
   const { user, logout } = useAuth();
   const { getProduct, getProductHistory } = useBlockchain();
+  const { 
+    account, 
+    isConnected, 
+    balance, 
+    connectWallet, 
+    sendTransaction, 
+    isMetaMaskInstalled 
+  } = useMetaMask();
   const navigate = useNavigate();
   const { toast } = useToast();
 
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResult, setSearchResult] = useState<any>(null);
   const [productHistory, setProductHistory] = useState<any[]>([]);
+  const [isProcessingTx, setIsProcessingTx] = useState(false);
 
   useEffect(() => {
     if (!user || user.role !== 'healthcare') {
@@ -32,7 +50,23 @@ const HealthcareDashboard = () => {
     navigate('/');
   };
 
-  const handleSearch = (e: React.FormEvent) => {
+  const handleConnectWallet = async () => {
+    try {
+      await connectWallet();
+      toast({
+        title: "Wallet Connected",
+        description: "MetaMask wallet connected successfully",
+      });
+    } catch (error) {
+      toast({
+        title: "Connection Failed",
+        description: "Failed to connect MetaMask wallet",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (!searchQuery.trim()) {
@@ -44,31 +78,68 @@ const HealthcareDashboard = () => {
       return;
     }
 
-    // Extract product ID from QR code if needed
-    let productId = searchQuery;
-    if (searchQuery.startsWith('QR-')) {
-      productId = searchQuery.split('-')[1];
-    }
-
-    const product = getProduct(productId);
-    
-    if (product) {
-      setSearchResult(product);
-      const history = getProductHistory(productId);
-      setProductHistory(history);
-      
+    if (!isConnected || !account) {
       toast({
-        title: "Product Found",
-        description: `Found ${product.name} - ${product.status}`,
-      });
-    } else {
-      setSearchResult(null);
-      setProductHistory([]);
-      toast({
-        title: "Product Not Found",
-        description: "No product found with this ID or QR code",
+        title: "Wallet Required",
+        description: "Please connect your MetaMask wallet to verify products",
         variant: "destructive",
       });
+      return;
+    }
+
+    setIsProcessingTx(true);
+
+    try {
+      // Send verification transaction first
+      const txData = stringToHex(JSON.stringify({
+        action: 'VIEW_HISTORY',
+        productQuery: searchQuery,
+        verifier: user?.email,
+        timestamp: new Date().toISOString()
+      }));
+
+      const txHash = await sendTransaction(
+        account,
+        TRANSACTION_COSTS.VIEW_HISTORY,
+        txData
+      );
+
+      // Extract product ID from QR code if needed
+      let productId = searchQuery;
+      if (searchQuery.startsWith('QR-')) {
+        productId = searchQuery.split('-')[1];
+      }
+
+      const product = getProduct(productId);
+      
+      if (product) {
+        setSearchResult(product);
+        const history = getProductHistory(productId, txHash);
+        setProductHistory(history);
+        
+        toast({
+          title: "Product Verified",
+          description: `Found ${product.name} - ${product.status}. Verification recorded on blockchain.`,
+        });
+      } else {
+        setSearchResult(null);
+        setProductHistory([]);
+        toast({
+          title: "Product Not Found",
+          description: "No product found with this ID or QR code",
+          variant: "destructive",
+        });
+      }
+
+    } catch (error) {
+      console.error('Verification transaction failed:', error);
+      toast({
+        title: "Verification Failed",
+        description: "Failed to process blockchain verification",
+        variant: "destructive",
+      });
+    } finally {
+      setIsProcessingTx(false);
     }
   };
 
@@ -84,6 +155,8 @@ const HealthcareDashboard = () => {
         return <Truck className="h-4 w-4" />;
       case 'sold':
         return <QrCode className="h-4 w-4" />;
+      case 'verified':
+        return <Shield className="h-4 w-4" />;
       default:
         return <Clock className="h-4 w-4" />;
     }
@@ -116,6 +189,31 @@ const HealthcareDashboard = () => {
             </div>
             <div className="flex items-center space-x-4">
               <span className="text-sm text-gray-600">Welcome, {user?.name}</span>
+              
+              {/* MetaMask Wallet Section */}
+              {!isMetaMaskInstalled ? (
+                <div className="flex items-center space-x-2 text-red-600">
+                  <AlertCircle className="h-4 w-4" />
+                  <span className="text-sm">MetaMask not installed</span>
+                </div>
+              ) : !isConnected ? (
+                <Button onClick={handleConnectWallet} variant="outline" size="sm">
+                  <Wallet className="h-4 w-4 mr-2" />
+                  Connect Wallet
+                </Button>
+              ) : (
+                <div className="flex items-center space-x-2 text-sm">
+                  <div className="flex items-center space-x-1 text-green-600">
+                    <Wallet className="h-4 w-4" />
+                    <span>Connected</span>
+                  </div>
+                  <span className="text-gray-600">|</span>
+                  <span className="font-mono text-xs">{account?.slice(0, 6)}...{account?.slice(-4)}</span>
+                  <span className="text-gray-600">|</span>
+                  <span className="text-green-600 font-medium">{balance} ETH</span>
+                </div>
+              )}
+              
               <Button onClick={handleLogout} variant="outline" size="sm">
                 <LogOut className="h-4 w-4 mr-2" />
                 Logout
@@ -136,6 +234,10 @@ const HealthcareDashboard = () => {
               </CardTitle>
               <CardDescription>
                 Enter Product ID or QR Code to verify authenticity
+                <br />
+                <span className="text-purple-600 font-medium">
+                  Cost: {formatEthAmount(TRANSACTION_COSTS.VIEW_HISTORY)}
+                </span>
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -148,13 +250,24 @@ const HealthcareDashboard = () => {
                     onChange={(e) => setSearchQuery(e.target.value)}
                     placeholder="Enter Product ID or scan QR"
                     required
+                    disabled={isProcessingTx}
                   />
                 </div>
                 
-                <Button type="submit" className="w-full bg-purple-600 hover:bg-purple-700">
+                <Button 
+                  type="submit" 
+                  className="w-full bg-purple-600 hover:bg-purple-700"
+                  disabled={!isConnected || isProcessingTx}
+                >
                   <Search className="h-4 w-4 mr-2" />
-                  Verify Product
+                  {isProcessingTx ? "Verifying..." : "Verify Product"}
                 </Button>
+                
+                {!isConnected && (
+                  <p className="text-sm text-gray-500 text-center">
+                    Connect MetaMask wallet to verify products
+                  </p>
+                )}
               </form>
 
               {searchResult && (
@@ -173,6 +286,11 @@ const HealthcareDashboard = () => {
                     <p><strong>Manufacturer:</strong> {searchResult.manufacturer}</p>
                     {searchResult.qrCode && (
                       <p><strong>QR Code:</strong> {searchResult.qrCode}</p>
+                    )}
+                    {searchResult.blockchainTxHash && (
+                      <p className="text-blue-600 font-mono text-xs">
+                        <strong>Blockchain Tx:</strong> {searchResult.blockchainTxHash.slice(0, 20)}...
+                      </p>
                     )}
                   </div>
                 </div>
@@ -279,6 +397,11 @@ const HealthcareDashboard = () => {
                           <p className="text-xs text-gray-500 mt-1 font-mono">
                             Hash: {transaction.hash}
                           </p>
+                          {transaction.txHash && (
+                            <p className="text-xs text-blue-600 mt-1 font-mono">
+                              Blockchain: {transaction.txHash.slice(0, 20)}...
+                            </p>
+                          )}
                         </div>
                       </div>
                     </div>
