@@ -1,4 +1,3 @@
-
 import React, { createContext, useContext, useState, useEffect } from 'react';
 
 interface MetaMaskContextType {
@@ -130,7 +129,8 @@ export const MetaMaskProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         from: account,
         value: '0x' + valueInWei,
         gas: '0x5208', // 21000 gas limit
-        data: data || '0x',
+        // Only include data if not sending to self
+        ...(to.toLowerCase() !== account.toLowerCase() && { data: data || '0x' })
       };
 
       const txHash = await window.ethereum.request({

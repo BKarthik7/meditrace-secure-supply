@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -252,10 +251,10 @@ const ManufacturerDashboard = () => {
               </CardTitle>
               <CardDescription>
                 Register a new medical supply on the blockchain
-                <div className="mt-2 text-xs bg-blue-50 p-2 rounded">
-                  Cost: {formatEthAmount(TRANSACTION_COSTS.ADD_PRODUCT)}
-                </div>
               </CardDescription>
+              <div className="mt-2 text-xs bg-blue-50 p-2 rounded">
+                Cost: {formatEthAmount(TRANSACTION_COSTS.ADD_PRODUCT)}
+              </div>
             </CardHeader>
             <CardContent>
               <form onSubmit={handleAddProduct} className="space-y-4">
