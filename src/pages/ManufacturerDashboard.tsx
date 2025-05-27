@@ -25,6 +25,8 @@ const ManufacturerDashboard = () => {
   const { account, isConnected, balance, connectWallet, sendTransaction, isMetaMaskInstalled } = useMetaMask();
   const navigate = useNavigate();
   const { toast } = useToast();
+  const [expandedProductId, setExpandedProductId] = useState<string | null>(null);
+  const [isProcessingPayment, setIsProcessingPayment] = useState(false);
 
   const [productForm, setProductForm] = useState({
     name: "",
@@ -194,6 +196,64 @@ const ManufacturerDashboard = () => {
       });
     } finally {
       setIsProcessingTx(false);
+    }
+  };
+
+  const handleProductClick = async (productId: string) => {
+    // If the product is already expanded, just close it without payment
+    if (expandedProductId === productId) {
+      setExpandedProductId(null);
+      return;
+    }
+
+    if (!isConnected) {
+      toast({
+        title: "Wallet Required",
+        description: "Please connect your MetaMask wallet to view product details",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (parseFloat(balance) < 0.002) {
+      toast({
+        title: "Insufficient Balance",
+        description: "You need at least 0.002 ETH to view product details",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsProcessingPayment(true);
+
+    try {
+      const txData = stringToHex(JSON.stringify({
+        action: 'VIEW_PRODUCT_DETAILS',
+        productId: productId,
+        timestamp: new Date().toISOString()
+      }));
+
+      const txHash = await sendTransaction(
+        account!,
+        "0.002",
+        txData
+      );
+
+      toast({
+        title: "Payment Successful",
+        description: `Transaction: ${txHash.substring(0, 10)}...`,
+      });
+
+      setExpandedProductId(productId);
+    } catch (error) {
+      console.error('Payment transaction failed:', error);
+      toast({
+        title: "Payment Failed",
+        description: "Failed to process payment. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsProcessingPayment(false);
     }
   };
 
@@ -391,24 +451,41 @@ const ManufacturerDashboard = () => {
                   <p className="text-gray-500 text-center py-4">No products yet</p>
                 ) : (
                   myProducts.map((product) => (
-                    <div key={product.id} className="border rounded-lg p-3 space-y-2">
+                    <div 
+                      key={product.id} 
+                      className="border rounded-lg p-3 space-y-2 cursor-pointer hover:bg-gray-50"
+                      onClick={() => handleProductClick(product.id)}
+                    >
                       <div className="flex justify-between items-start">
                         <h4 className="font-medium text-sm">{product.name}</h4>
-                        <span className={`text-xs px-2 py-1 rounded-full ${
-                          product.status === 'manufactured' ? 'bg-blue-100 text-blue-800' :
-                          product.status === 'assigned' ? 'bg-yellow-100 text-yellow-800' :
-                          'bg-green-100 text-green-800'
-                        }`}>
-                          {product.status}
-                        </span>
+                        <div className="flex items-center space-x-2">
+                          <span className="text-xs font-medium text-blue-600">0.002 ETH</span>
+                          <span className={`text-xs px-2 py-1 rounded-full ${
+                            product.status === 'manufactured' ? 'bg-blue-100 text-blue-800' :
+                            product.status === 'assigned' ? 'bg-yellow-100 text-yellow-800' :
+                            'bg-green-100 text-green-800'
+                          }`}>
+                            {product.status}
+                          </span>
+                        </div>
                       </div>
-                      <p className="text-xs text-gray-600">ID: {product.id}</p>
-                      <p className="text-xs text-gray-600">Batch: {product.batchNumber}</p>
-                      <p className="text-xs text-gray-600">Expires: {product.expirationDate}</p>
-                      {product.blockchainTxHash && (
-                        <p className="text-xs text-green-600">
-                          Blockchain TX: {product.blockchainTxHash.substring(0, 10)}...
-                        </p>
+                      
+                      {expandedProductId === product.id && (
+                        <div className="mt-2 space-y-1 pt-2 border-t">
+                          <p className="text-xs text-gray-600">ID: {product.id}</p>
+                          <p className="text-xs text-gray-600">Batch: {product.batchNumber}</p>
+                          <p className="text-xs text-gray-600">Expires: {product.expirationDate}</p>
+                          {product.blockchainTxHash && (
+                            <p className="text-xs text-green-600">
+                              Blockchain TX: {product.blockchainTxHash.substring(0, 10)}...
+                            </p>
+                          )}
+                        </div>
+                      )}
+                      {isProcessingPayment && expandedProductId === product.id && (
+                        <div className="mt-2 text-xs text-blue-600">
+                          Processing payment...
+                        </div>
                       )}
                     </div>
                   ))
